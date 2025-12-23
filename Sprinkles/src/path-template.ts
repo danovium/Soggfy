@@ -36,7 +36,7 @@ export class PathTemplate {
             name: "all_artist_names",
             desc: "Name of all artists featured in the track, separated by comma",
             pattern: `.+`,
-            getValue: m => m.artist ? m.artist.replaceAll("/", ", ") : m.album_artist
+            getValue: m => m.artist ? m.artist : m.album_artist
         },
         {
             name: "album_name",
@@ -111,7 +111,20 @@ export class PathTemplate {
     static getVarsFromMetadata(meta: any, playback: PlayerState) {
         let vals: PathTemplateVars = {};
         for (let pv of PathTemplate.Vars) {
-            vals[pv.name] = pv.getValue(meta, playback);
+            let value = pv.getValue(meta, playback);
+
+            // 🔧 Special handling for artist-related vars
+            if (pv.name === "artist_name" || pv.name === "all_artist_names") {
+                if (typeof value === "string") {
+                    const parts = value.split(",");
+                    if (parts.length > 2) {
+                        parts.splice(1, 1); // remove the second artist
+                        value = parts.join(",");
+                    }
+                }
+            }
+
+            vals[pv.name] = value;
         }
         return vals;
     }
@@ -128,8 +141,8 @@ export class PathTemplate {
             return val;
         });
     }
+
     static escapePath(str: string) {
-        //https://docs.microsoft.com/en-us/windows/win32/fileio/naming-a-file
         const ReplacementChars = {
             '\\': '＼',
             '/': '／',
@@ -145,16 +158,10 @@ export class PathTemplate {
         if (repl === "unicode") {
             repl = v => ReplacementChars[v] ?? " ";
         }
-        //invalid characters -> similar characters
         str = str.replace(/[\x00-\x1f\/\\:*?"<>|]/g, repl);
-        //leading/trailling spaces -> "\u2002 En Space"
         str = str.replace(/(^ +| +$)/g, "\u2002");
-        //trailling dots -> "\uFF0E Fullwidth Stop"
-        //also handles ".."
         str = str.replace(/\.+$/g, v => "．".repeat(v.length));
-        //special names (append "\u2002")
         str = str.replace(/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/gi, "$&\u2002");
-
         return str;
     }
 
@@ -165,7 +172,6 @@ export class PathTemplate {
         return path.replace(/(?:\.[^\\\/\.]*)?$/, newExt);
     }
 
-    // a/b/c.txt | a/b/c  ->  a/b
     static getParentPath(path: string) {
         let index = path.replaceAll('\\', '/').lastIndexOf('/');
         return index < 0 ? path : path.substring(0, index);
@@ -177,8 +183,6 @@ interface TemplateNode {
     pattern: string;
     literal: boolean;
     id?: string;
-    //how deep the parent should recuse for the pattern to match (must be regex).
-    //ex. pattern "album(/CD 1)?" may need an extra recursion to match path "album/CD 1/".
     maxDepth?: number;
 }
 
@@ -206,9 +210,9 @@ export class TemplatedSearchTree {
         for (let part of this.template) {
             let pattern = PathTemplate.render(part, vars);
             let literal = !/{(.+?)}/.test(pattern);
-            let mayBranch = pattern.includes("{multi_disc_path}"); //still fucked if included more than once, but that's enough for now.
+            let mayBranch = pattern.includes("{multi_disc_path}");
 
-            if (!literal) { //placeholder is keept for unknown variables
+            if (!literal) {
                 pattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
                 pattern = pattern.replace(/\\{(.+?)\\}/g, (g0, g1) => {
                     if (g1 === "_ext") return EXT_REGEX.source;
