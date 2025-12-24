@@ -113,8 +113,8 @@ export class PathTemplate {
         for (let pv of PathTemplate.Vars) {
             let value = pv.getValue(meta, playback);
 
-            // 🔧 Special handling for artist-related vars
-            if (pv.name === "artist_name" || pv.name === "all_artist_names") {
+            // special handling for artist-related vars
+            if pv.name === "all_artist_names" {
                 if (typeof value === "string") {
                     const parts = value.split(",");
                     if (parts.length > 2) {
